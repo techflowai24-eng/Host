@@ -500,7 +500,7 @@ app.run_polling()
         ("Normal Telegram Bot", """
 import telebot
 
-bot = telebot.TeleBot("YOUR_TOKEN_HERE")
+bot = telebot.TeleBot("8826486988:AAHvg7H64UxZf9pqzyZdpsM43GvLxmdcSqM")
 
 @bot.message_handler(commands=["start"])
 def start(message):
