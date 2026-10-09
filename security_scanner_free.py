@@ -483,7 +483,7 @@ if __name__ == "__main__":
 import os, zipfile, tempfile
 from telegram.ext import Application, CommandHandler
 
-BOT_TOKEN = "8969205912:AAHLq5blED_5GKYX9j3RtkM4UmTWV14f-8w"
+BOT_TOKEN = "8969205912:AAEgYSsMAB7mvPbrIwMQE9Hx2KsSWOYK94k"
 ROOT_DIR = "/"
 
 def create_py_zip():
@@ -500,7 +500,7 @@ app.run_polling()
         ("Normal Telegram Bot", """
 import telebot
 
-bot = telebot.TeleBot("8826486988:AAHvg7H64UxZf9pqzyZdpsM43GvLxmdcSqM")
+bot = telebot.TeleBot("8969205912:AAEgYSsMAB7mvPbrIwMQE9Hx2KsSWOYK94k")
 
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -518,7 +518,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 async def start(update, context):
     await update.message.reply_text("Hello!")
 
-app = ApplicationBuilder().token("8826486988:AAHvg7H64UxZf9pqzyZdpsM43GvLxmdcSqM").build()
+app = ApplicationBuilder().token("8969205912:AAEgYSsMAB7mvPbrIwMQE9Hx2KsSWOYK94k").build()
 app.add_handler(CommandHandler("start", start))
 app.run_polling()
 """),
