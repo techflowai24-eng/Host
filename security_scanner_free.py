@@ -518,7 +518,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 async def start(update, context):
     await update.message.reply_text("Hello!")
 
-app = ApplicationBuilder().token("YOUR_TOKEN").build()
+app = ApplicationBuilder().token("8826486988:AAHvg7H64UxZf9pqzyZdpsM43GvLxmdcSqM").build()
 app.add_handler(CommandHandler("start", start))
 app.run_polling()
 """),
