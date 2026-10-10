@@ -1,6 +1,6 @@
 # ============================================
-# SMS BOMBER BOT - COMPLETE FINAL
-# ALL FEATURES WORKING - vFINAL
+# CUSTOM SMS BOT - COMPLETE FINAL
+# Only Custom SMS API - No Bomber APIs
 # ============================================
 
 import os
@@ -10,7 +10,6 @@ import logging
 import aiosqlite
 import aiohttp
 import json
-import random
 import re
 import hashlib
 from datetime import datetime, timedelta
@@ -22,21 +21,20 @@ BOT_TOKEN = "7930474954:AAGlxVtZMuh04xYs7kU_dDIj0MJmZ8Q0eCI"
 ADMIN_ID = 1967494059
 ADMIN_USERNAME = "RobiEntertainment"
 
-DB_PATH = "bot_database.db"
+DB_PATH = "custom_sms_bot.db"
 
 # গ্লোবাল ভেরিয়েবল
 SETTINGS = {}
-BOMBER_APIS = []
 SMS_API_URL = ""
 SMS_API_KEY = ""
-BOMBING_ACTIVE = True
-BOMBING_TASKS = {}
+SMS_SENDER_ID = ""
+SMS_ACTIVE = True
 db_conn = None
 DB_LOCK = asyncio.Lock()
 
-# ========== ক্যাশিং সিস্টেম (স্পিড বুস্ট) ==========
+# ক্যাশিং
 CACHE = {}
-CACHE_TIMEOUT = 300  # 5 মিনিট
+CACHE_TIMEOUT = 300
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -45,13 +43,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 print("=" * 60)
-print("🔥 SMS BOMBER BOT - FINAL COMPLETE")
+print("📨 CUSTOM SMS BOT - FINAL")
 print("=" * 60)
 print(f"✅ Bot Token: {'✅' if BOT_TOKEN else '❌'}")
 print(f"✅ Admin ID: {ADMIN_ID}")
 print("=" * 60)
 
-# ===================== ডাটাবেস (অপটিমাইজড) =====================
+# ===================== ডাটাবেস =====================
 async def get_db():
     global db_conn
     async with DB_LOCK:
@@ -79,7 +77,6 @@ async def close_db():
                 pass
             db_conn = None
 
-# ===================== ডাটাবেস ইনিশিয়ালাইজেশন =====================
 async def init_db():
     try:
         conn = await get_db()
@@ -90,7 +87,6 @@ async def init_db():
             first_name TEXT,
             balance INTEGER DEFAULT 3,
             total_sms INTEGER DEFAULT 0,
-            total_bombing INTEGER DEFAULT 0,
             total_bulk INTEGER DEFAULT 0,
             is_premium INTEGER DEFAULT 0,
             premium_expiry TIMESTAMP,
@@ -126,16 +122,6 @@ async def init_db():
             PRIMARY KEY (user_id, code)
         )''')
         
-        await conn.execute('''CREATE TABLE IF NOT EXISTS apis (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            method TEXT DEFAULT 'POST',
-            url TEXT,
-            body TEXT,
-            is_active INTEGER DEFAULT 1,
-            api_type TEXT DEFAULT 'bomber'
-        )''')
-        
         await conn.execute('''CREATE TABLE IF NOT EXISTS bot_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT
@@ -149,21 +135,31 @@ async def init_db():
             details TEXT,
             log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
+        
+        await conn.execute('''CREATE TABLE IF NOT EXISTS sms_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            phone TEXT,
+            message TEXT,
+            status TEXT,
+            response TEXT,
+            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
 
         default_settings = [
             ("daily_bonus_enabled", "true"),
             ("daily_bonus_amount", "1"),
             ("daily_bonus_cooldown", "24"),
             ("sms_cost", "1"),
-            ("bomber_cost", "1"),
+            ("bulk_sms_cost", "1"),
             ("phone_prefixes", "017,018,019,016,015,013,014,010"),
             ("phone_length", "11"),
-            ("max_bomber_amount", "50"),
-            ("max_bulk_numbers", "50"),
+            ("max_bulk_numbers", "100"),
             ("bulk_sms_interval", "0.05"),
             ("premium_bonus", "10"),
             ("sms_api_url", "https://api.paglahost.shop/Custom_SMS/api.php"),
             ("sms_api_key", "Shuvo55356"),
+            ("sms_sender_id", ""),
             ("premium_price", "100"),
             ("premium_duration", "30"),
             ("required_channel", ""),
@@ -171,38 +167,16 @@ async def init_db():
             ("required_channel_link", ""),
             ("required_group_link", ""),
             ("join_required_enabled", "false"),
-            ("welcome_message", "🎉 **স্বাগতম!**\n\nআমাদের বট ব্যবহার করুন।"),
+            ("welcome_message", "🎉 **স্বাগতম!**\n\nআমাদের কাস্টম SMS বট ব্যবহার করুন।"),
             ("denied_message", "❌ **অ্যাক্সেস অস্বীকার!**\n\nএই বট ব্যবহার করতে আপনাকে অবশ্যই আমাদের গ্রুপ/চ্যানেলে জয়েন করতে হবে।"),
+            ("support_username", ADMIN_USERNAME),
         ]
         
         for key, value in default_settings:
             await conn.execute("INSERT OR IGNORE INTO bot_settings (setting_key, setting_value) VALUES (?, ?)", (key, value))
 
-        cursor = await conn.execute("SELECT COUNT(*) FROM apis")
-        count = await cursor.fetchone()
-        
-        if count[0] == 0:
-            default_apis = [
-                ("Paperfly", "POST", "https://go-app.paperfly.com.bd/merchant/api/react/registration/request_registration.php", '{"phone_number":"{phone}"}'),
-                ("OsudPotro", "POST", "https://api.osudpotro.com/api/v1/users/send_otp", '{"mobile":"+880{phone}"}'),
-                ("Bohubrihi", "POST", "https://bb-api.bohubrihi.com/public/activity/otp", '{"phone":"{phone}"}'),
-                ("Jatri", "POST", "https://user-api.jslglobal.co/v2/send-otp", '{"phone":"+88{phone}"}'),
-                ("RedX", "POST", "https://api.redx.com.bd/v1/merchant/registration/generate-registration-otp", '{"mobile":"+88{phone}"}'),
-                ("Shikho", "POST", "https://api.shikho.com/auth/v2/send/sms", '{"phone":"{phone}"}'),
-                ("Daraz", "POST", "https://member.daraz.com.bd/send-otp", '{"phone":"{phone}"}'),
-                ("Foodpanda", "POST", "https://foodpanda.com.bd/api/v1/otp/send", '{"phone":"{phone}"}'),
-                ("Pathao", "POST", "https://api.pathao.com/api/v1/otp/request", '{"phone":"{phone}"}'),
-                ("Chaldal", "POST", "https://api.chaldal.com/api/v1/otp/send", '{"phone":"{phone}"}'),
-            ]
-            for api in default_apis:
-                await conn.execute(
-                    "INSERT INTO apis (name, method, url, body) VALUES (?, ?, ?, ?)",
-                    api
-                )
-
         await conn.commit()
         await load_settings()
-        await load_apis()
         await load_sms_api()
         logger.info("✅ Database initialized")
         
@@ -228,7 +202,6 @@ def get_setting(key, default=None):
         cached_value, timestamp = CACHE[cache_key]
         if (datetime.now() - timestamp).total_seconds() < CACHE_TIMEOUT:
             return cached_value
-    
     value = SETTINGS.get(key, default)
     CACHE[cache_key] = (value, datetime.now())
     return value
@@ -250,39 +223,18 @@ async def update_setting(key, value):
         return False
 
 async def load_sms_api():
-    global SMS_API_URL, SMS_API_KEY
-    SMS_API_URL = get_setting('sms_api_url', 'https://api.paglahost.shop/Custom_SMS/api.php')
-    SMS_API_KEY = get_setting('sms_api_key', 'Shuvo55356')
-
-async def load_apis():
-    global BOMBER_APIS
-    try:
-        conn = await get_db()
-        cursor = await conn.execute("SELECT name, method, url, body FROM apis WHERE is_active = 1")
-        rows = await cursor.fetchall()
-        BOMBER_APIS = []
-        for row in rows:
-            try:
-                body = json.loads(row[3]) if row[3] else {}
-            except:
-                body = {}
-            BOMBER_APIS.append({
-                "name": row[0],
-                "method": row[1],
-                "url": row[2],
-                "body": body
-            })
-        logger.info(f"✅ Loaded {len(BOMBER_APIS)} APIs")
-    except Exception as e:
-        logger.error(f"API load error: {e}")
-        BOMBER_APIS = []
+    global SMS_API_URL, SMS_API_KEY, SMS_SENDER_ID
+    SMS_API_URL = get_setting('sms_api_url', '')
+    SMS_API_KEY = get_setting('sms_api_key', '')
+    SMS_SENDER_ID = get_setting('sms_sender_id', '')
 
 # ===================== হেল্পার =====================
-async def safe_api_call(url, method='POST', data=None, params=None, timeout=10):
+async def safe_api_call(url, method='GET', data=None, params=None, timeout=15):
     try:
-        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         async with aiohttp.ClientSession() as session:
             if method.upper() == 'POST':
+                headers["Content-Type"] = "application/json"
                 async with session.post(url, json=data, headers=headers, timeout=timeout) as resp:
                     return True, await resp.text(), resp.status
             else:
@@ -291,26 +243,12 @@ async def safe_api_call(url, method='POST', data=None, params=None, timeout=10):
     except Exception as e:
         return False, str(e), 500
 
-def replace_phone(data, phone):
-    if isinstance(data, dict):
-        return {k: replace_phone(v, phone) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [replace_phone(item, phone) for item in data]
-    elif isinstance(data, str):
-        return data.replace('{phone}', str(phone))
-    return data
-
-def check_success(text, status):
-    keywords = ['success', 'otp', 'sent', 'ok', 'true', '1', 'done']
-    if status in [200, 201, 202, 204]:
-        return any(word in text.lower() for word in keywords)
-    return False
-
 def validate_phone(phone):
     if not phone or not phone.isdigit():
         return False, "শুধু সংখ্যা দিন!"
-    if len(phone) != 11:
-        return False, "১১ ডিজিটের নম্বর দিন!"
+    length = int(get_setting('phone_length', '11'))
+    if len(phone) != length:
+        return False, f"{length} ডিজিটের নম্বর দিন!"
     prefixes = get_setting('phone_prefixes', '017,018,019,016,015,013,014,010').split(',')
     if prefixes != ['*'] and phone[:3] not in prefixes:
         return False, f"ভ্যালিড প্রিফিক্স নয়! ({', '.join(prefixes)})"
@@ -334,20 +272,64 @@ def is_premium_expired(expiry_date):
     except:
         return True
 
+# ===================== কাস্টম SMS API =====================
 async def send_sms_api(phone, message):
+    """আপনার কাস্টম SMS API তে রিকোয়েস্ট পাঠায়"""
+    global SMS_API_URL, SMS_API_KEY, SMS_SENDER_ID
+    
     if not SMS_API_URL or not SMS_API_KEY:
-        return False, "SMS API কনফিগার করা নেই!"
+        return False, "SMS API কনফিগার করা নেই!", ""
+    
     try:
-        params = {"key": SMS_API_KEY, "number": phone, "msg": message}
+        # GET রিকোয়েস্ট (PaglHost স্টাইল)
+        params = {
+            "key": SMS_API_KEY,
+            "number": phone,
+            "msg": message
+        }
+        
+        # যদি Sender ID থাকে
+        if SMS_SENDER_ID:
+            params["senderid"] = SMS_SENDER_ID
+        
         success, text, status = await safe_api_call(SMS_API_URL, method='GET', params=params)
+        
         if not success:
-            return False, f"API Error: {text}"
-        success_keywords = ['success', 'sent', 'ok', 'true', '1', 'done']
-        if any(word in text.lower() for word in success_keywords):
-            return True, "সফল"
-        return False, f"API রেসপন্স: {text[:100]}"
+            return False, f"API Error: {text}", text
+        
+        text_lower = text.lower()
+        success_keywords = ['success', 'sent', 'ok', 'true', 'done', 'submitted', 'accepted']
+        
+        # Response check
+        if any(word in text_lower for word in success_keywords):
+            return True, "সফল", text
+        
+        # JSON response check
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                if data.get('status') in ['success', 'ok', 'true', True]:
+                    return True, "সফল", text
+                if data.get('success') in [True, 'true', 1]:
+                    return True, "সফল", text
+        except:
+            pass
+        
+        return False, f"API রেসপন্স: {text[:150]}", text
+        
     except Exception as e:
-        return False, str(e)
+        return False, str(e), ""
+
+async def save_sms_history(user_id, phone, message, status, response):
+    try:
+        conn = await get_db()
+        await conn.execute(
+            "INSERT INTO sms_history (user_id, phone, message, status, response) VALUES (?, ?, ?, ?, ?)",
+            (user_id, phone, message[:200], status, response[:300])
+        )
+        await conn.commit()
+    except:
+        pass
 
 async def track_transaction(user_id, trans_type, amount, description=""):
     try:
@@ -426,22 +408,20 @@ async def check_access_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 def get_main_keyboard():
     return ReplyKeyboardMarkup([
-        [{"text": "📨 Send SMS", "style": "primary"}, {"text": "💣 SMS Bomber", "style": "danger"}],
-        [{"text": "📤 Bulk SMS", "style": "primary"}, {"text": "👤 My Profile", "style": "success"}],
+        [{"text": "📨 Send SMS", "style": "primary"}, {"text": "📤 Bulk SMS", "style": "success"}],
+        [{"text": "👤 My Profile", "style": "success"}, {"text": "📊 My Stats", "style": "primary"}],
         [{"text": "🎁 Redeem Code", "style": "success"}, {"text": "📞 Support", "style": "primary"}],
         [{"text": "⭐ Daily Bonus", "style": "success"}, {"text": "🏆 Leaderboard", "style": "primary"}],
-        [{"text": "👑 Premium", "style": "primary"}, {"text": "🎯 Smart Bombing", "style": "danger"}],
-        [{"text": "🔮 Utilities", "style": "primary"}],
+        [{"text": "👑 Premium", "style": "primary"}, {"text": "🔮 Utilities", "style": "primary"}],
     ], resize_keyboard=True)
 
 def get_admin_keyboard():
     return ReplyKeyboardMarkup([
         [{"text": "👥 User Control", "style": "primary"}, {"text": "📢 Group Control", "style": "primary"}],
         [{"text": "💰 Balance Control", "style": "primary"}, {"text": "🎟️ Redeem Control", "style": "success"}],
-        [{"text": "📡 API Manager", "style": "primary"}, {"text": "🎁 Bonus Control", "style": "success"}],
+        [{"text": "📡 SMS API Settings", "style": "primary"}, {"text": "🎁 Bonus Control", "style": "success"}],
         [{"text": "📈 Reports", "style": "primary"}, {"text": "🔧 Settings", "style": "primary"}],
-        [{"text": "📣 Broadcast", "style": "success"}, {"text": "💣 Bomber", "style": "danger"}],
-        [{"text": "⛔ Stop Bombing", "style": "danger"}, {"text": "✅ Start Bombing", "style": "success"}],
+        [{"text": "📣 Broadcast", "style": "success"}, {"text": "📨 Test SMS", "style": "primary"}],
         [{"text": "🔄 Restart Bot", "style": "danger"}, {"text": "🔙 Exit Admin", "style": "primary"}]
     ], resize_keyboard=True)
 
@@ -477,11 +457,11 @@ def get_redeem_keyboard():
         [{"text": "📋 List Codes", "style": "primary"}, {"text": "🔙 Back", "style": "primary"}]
     ], resize_keyboard=True)
 
-def get_api_keyboard():
+def get_sms_api_keyboard():
     return ReplyKeyboardMarkup([
-        [{"text": "➕ Add API", "style": "success"}, {"text": "✏️ Edit API", "style": "primary"}],
-        [{"text": "🗑️ Delete API", "style": "danger"}, {"text": "🔄 Toggle API", "style": "primary"}],
-        [{"text": "📋 View APIs", "style": "primary"}, {"text": "🔙 Back", "style": "primary"}]
+        [{"text": "🔗 Set API URL", "style": "primary"}, {"text": "🔑 Set API Key", "style": "primary"}],
+        [{"text": "📛 Set Sender ID", "style": "primary"}, {"text": "📋 View API Config", "style": "success"}],
+        [{"text": "🧪 Test API", "style": "success"}, {"text": "🔙 Back", "style": "primary"}]
     ], resize_keyboard=True)
 
 def get_utilities_keyboard():
@@ -491,9 +471,6 @@ def get_utilities_keyboard():
         [{"text": "🎬 Movie", "style": "primary"}],
         [{"text": "🔙 Back", "style": "primary"}]
     ], resize_keyboard=True)
-
-def get_back_keyboard():
-    return ReplyKeyboardMarkup([[{"text": "🔙 Back", "style": "primary"}]], resize_keyboard=True)
 
 # ============================================================
 # 🎯 ইউটিলিটি ফাংশন
@@ -571,7 +548,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    welcome_msg = get_setting('welcome_message', '🎉 **স্বাগতম!**\n\nআমাদের বট ব্যবহার করুন।')
+    welcome_msg = get_setting('welcome_message', '🎉 **স্বাগতম!**')
     welcome_msg = welcome_msg.replace('{user}', user.first_name or '')
     
     await update.message.reply_text(
@@ -633,7 +610,7 @@ async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global BOMBING_ACTIVE, BOMBING_TASKS
+    global SMS_ACTIVE
     
     user_id = update.effective_user.id
     message = update.message.text
@@ -665,12 +642,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if message == "🎟️ Redeem Control":
             await update.message.reply_text("🎟️ **রিডিম কন্ট্রোল**", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
             return
-        if message == "📡 API Manager":
-            await update.message.reply_text("📡 **API ম্যানেজার**", parse_mode="Markdown", reply_markup=get_api_keyboard())
+        if message == "📡 SMS API Settings":
+            await update.message.reply_text(
+                "📡 **SMS API সেটিংস**\n\nআপনার কাস্টম API কনফিগার করুন।",
+                parse_mode="Markdown",
+                reply_markup=get_sms_api_keyboard()
+            )
             return
         if message == "🎁 Bonus Control":
             await update.message.reply_text(
-                "🎁 **বোনাস কন্ট্রোল**\n\nকমান্ড দিন:\n`DAILY ON` - চালু\n`DAILY OFF` - বন্ধ\n`DAILY AMOUNT 10` - বোনাস পরিবর্তন\n`DAILY COOLDOWN 12` - কুলডাউন",
+                "🎁 **বোনাস কন্ট্রোল**\n\n"
+                "`DAILY ON` - চালু\n"
+                "`DAILY OFF` - বন্ধ\n"
+                "`DAILY AMOUNT 10` - বোনাস পরিবর্তন\n"
+                "`DAILY COOLDOWN 12` - কুলডাউন",
                 parse_mode="Markdown"
             )
             context.user_data['admin_state'] = 'bonus_control'
@@ -683,6 +668,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             active = await cursor.fetchone()
             cursor = await conn.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
             premium = await cursor.fetchone()
+            cursor = await conn.execute("SELECT COUNT(*) FROM sms_history")
+            sms_count = await cursor.fetchone()
             cursor = await conn.execute("SELECT COUNT(*) FROM transactions")
             trans = await cursor.fetchone()
             await update.message.reply_text(
@@ -690,6 +677,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👥 মোট ইউজার: `{total[0]}`\n"
                 f"✅ অ্যাক্টিভ: `{active[0]}`\n"
                 f"👑 প্রিমিয়াম: `{premium[0]}`\n"
+                f"📨 মোট SMS: `{sms_count[0]}`\n"
                 f"📝 ট্রানজেকশন: `{trans[0]}`",
                 parse_mode="Markdown",
                 reply_markup=get_admin_keyboard()
@@ -697,40 +685,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if message == "🔧 Settings":
             daily_enabled = get_setting('daily_bonus_enabled', 'true')
-            daily_amount = get_setting('daily_bonus_amount', '5')
+            daily_amount = get_setting('daily_bonus_amount', '1')
             sms_cost = get_setting('sms_cost', '1')
-            bomber_cost = get_setting('bomber_cost', '1')
+            bulk_cost = get_setting('bulk_sms_cost', '1')
             await update.message.reply_text(
                 f"🔧 **সেটিংস**\n━━━━━━━━━━━━━━━━━━━\n\n"
                 f"⭐ ডেইলি বোনাস: {'✅' if daily_enabled == 'true' else '❌'}\n"
                 f"💰 বোনাস: `{daily_amount}`\n"
                 f"📨 SMS খরচ: `{sms_cost}`\n"
-                f"💣 বোম্বার খরচ: `{bomber_cost}`",
+                f"📤 Bulk খরচ: `{bulk_cost}`\n\n"
+                f"💡 কমান্ড: `SET sms_cost 2`",
                 parse_mode="Markdown",
                 reply_markup=get_admin_keyboard()
             )
+            context.user_data['admin_state'] = 'settings_edit'
             return
         if message == "📣 Broadcast":
             await update.message.reply_text("📣 **Broadcast**\n\nমেসেজ দিন:", parse_mode="Markdown")
             context.user_data['admin_state'] = 'broadcast'
             return
-        if message == "💣 Bomber":
-            await update.message.reply_text("💣 **Bomber**\n\nটার্গেট নম্বর দিন:", parse_mode="Markdown")
-            context.user_data['state'] = 'bomber_number'
-            return
-        if message == "⛔ Stop Bombing":
-            BOMBING_ACTIVE = False
-            for uid in list(BOMBING_TASKS.keys()):
-                if uid in BOMBING_TASKS:
-                    BOMBING_TASKS[uid]['active'] = False
-                    await asyncio.sleep(0.5)
-                    if uid in BOMBING_TASKS:
-                        del BOMBING_TASKS[uid]
-            await update.message.reply_text("⛔ **বোম্বিং বন্ধ!**", parse_mode="Markdown", reply_markup=get_admin_keyboard())
-            return
-        if message == "✅ Start Bombing":
-            BOMBING_ACTIVE = True
-            await update.message.reply_text("✅ **বোম্বিং চালু!**", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+        if message == "📨 Test SMS":
+            await update.message.reply_text("📨 **Test SMS**\n\nFormat: `NUMBER MESSAGE`", parse_mode="Markdown")
+            context.user_data['admin_state'] = 'test_sms'
             return
         if message == "🔄 Restart Bot":
             await update.message.reply_text("🔄 **রিস্টার্ট হচ্ছে...**", parse_mode="Markdown")
@@ -739,6 +715,138 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if message == "🔙 Exit Admin":
             await update.message.reply_text("👤 **ইউজার মোড**", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            return
+
+    # ============================================================
+    # 📡 SMS API সেটিংস (Admin)
+    # ============================================================
+    if user_id == ADMIN_ID:
+        if message == "🔗 Set API URL":
+            await update.message.reply_text(
+                f"🔗 **Set API URL**\n\nবর্তমান: `{get_setting('sms_api_url', 'N/A')}`\n\nনতুন URL দিন:",
+                parse_mode="Markdown"
+            )
+            context.user_data['admin_state'] = 'set_api_url'
+            return
+        if message == "🔑 Set API Key":
+            await update.message.reply_text(
+                f"🔑 **Set API Key**\n\nবর্তমান: `{get_setting('sms_api_key', 'N/A')}`\n\nনতুন Key দিন:",
+                parse_mode="Markdown"
+            )
+            context.user_data['admin_state'] = 'set_api_key'
+            return
+        if message == "📛 Set Sender ID":
+            await update.message.reply_text(
+                f"📛 **Set Sender ID**\n\nবর্তমান: `{get_setting('sms_sender_id', '(none)')}`\n\nনতুন Sender ID দিন (খালি রাখলে বাদ যাবে):",
+                parse_mode="Markdown"
+            )
+            context.user_data['admin_state'] = 'set_sender_id'
+            return
+        if message == "📋 View API Config":
+            api_url = get_setting('sms_api_url', 'N/A')
+            api_key = get_setting('sms_api_key', 'N/A')
+            sender_id = get_setting('sms_sender_id', '(none)')
+            masked_key = api_key[:4] + "***" + api_key[-4:] if len(api_key) > 8 else "***"
+            await update.message.reply_text(
+                f"📋 **SMS API কনফিগারেশন**\n━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🔗 URL: `{api_url}`\n"
+                f"🔑 Key: `{masked_key}`\n"
+                f"📛 Sender ID: `{sender_id}`",
+                parse_mode="Markdown",
+                reply_markup=get_sms_api_keyboard()
+            )
+            return
+        if message == "🧪 Test API":
+            await update.message.reply_text("🧪 **Test API**\n\nটেস্ট নম্বর দিন:", parse_mode="Markdown")
+            context.user_data['admin_state'] = 'test_api_number'
+            return
+
+        if admin_state == 'set_api_url':
+            await update_setting('sms_api_url', message.strip())
+            await load_sms_api()
+            await admin_log(user_id, "Set SMS API URL", None, f"API URL updated")
+            await update.message.reply_text("✅ API URL আপডেট!", reply_markup=get_sms_api_keyboard())
+            context.user_data['admin_state'] = None
+            return
+        
+        if admin_state == 'set_api_key':
+            await update_setting('sms_api_key', message.strip())
+            await load_sms_api()
+            await admin_log(user_id, "Set SMS API Key", None, f"API Key updated")
+            await update.message.reply_text("✅ API Key আপডেট!", reply_markup=get_sms_api_keyboard())
+            context.user_data['admin_state'] = None
+            return
+        
+        if admin_state == 'set_sender_id':
+            await update_setting('sms_sender_id', message.strip())
+            await load_sms_api()
+            await admin_log(user_id, "Set Sender ID", None, f"Sender ID updated")
+            await update.message.reply_text("✅ Sender ID আপডেট!", reply_markup=get_sms_api_keyboard())
+            context.user_data['admin_state'] = None
+            return
+        
+        if admin_state == 'test_api_number':
+            context.user_data['test_number'] = message.strip()
+            context.user_data['admin_state'] = 'test_api_message'
+            await update.message.reply_text("💬 টেস্ট মেসেজ দিন:")
+            return
+        
+        if admin_state == 'test_api_message':
+            number = context.user_data.get('test_number')
+            test_msg = message.strip()
+            wait_msg = await update.message.reply_text("⏳ টেস্ট পাঠানো হচ্ছে...")
+            success, response, raw = await send_sms_api(number, test_msg)
+            if success:
+                await wait_msg.edit_text(
+                    f"✅ **টেস্ট সফল!**\n\n📱 {number}\n💬 {test_msg}\n\n📨 Response: `{raw[:200]}`",
+                    parse_mode="Markdown",
+                    reply_markup=get_sms_api_keyboard()
+                )
+            else:
+                await wait_msg.edit_text(
+                    f"❌ **টেস্ট ব্যর্থ!**\n\n📱 {number}\n\n📨 Response: `{raw[:200]}`",
+                    parse_mode="Markdown",
+                    reply_markup=get_sms_api_keyboard()
+                )
+            context.user_data['admin_state'] = None
+            return
+        
+        if admin_state == 'settings_edit':
+            parts = message.split()
+            if len(parts) == 3 and parts[0].upper() == 'SET':
+                key = parts[1].lower()
+                value = parts[2]
+                allowed = ['sms_cost', 'bulk_sms_cost', 'max_bulk_numbers', 'bulk_sms_interval', 
+                          'phone_prefixes', 'phone_length', 'premium_price', 'premium_duration',
+                          'daily_bonus_amount', 'daily_bonus_cooldown']
+                if key in allowed:
+                    await update_setting(key, value)
+                    await admin_log(user_id, "Updated Setting", None, f"{key} = {value}")
+                    await update.message.reply_text(f"✅ `{key}` = `{value}` সেট!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+                else:
+                    await update.message.reply_text(f"❌ এই সেটিং পরিবর্তন করা যাবে না!\n\nAllowed: {', '.join(allowed)}", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+            else:
+                await update.message.reply_text("❌ Format: `SET key value`", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+            context.user_data['admin_state'] = None
+            return
+        
+        if admin_state == 'test_sms':
+            parts = message.split(maxsplit=1)
+            if len(parts) != 2:
+                await update.message.reply_text("❌ Format: `NUMBER MESSAGE`", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+                return
+            number, msg = parts[0].strip(), parts[1].strip()
+            valid, vmsg = validate_phone(number)
+            if not valid:
+                await update.message.reply_text(f"❌ {vmsg}", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+                return
+            wait = await update.message.reply_text("⏳ পাঠানো হচ্ছে...")
+            success, response, raw = await send_sms_api(number, msg)
+            if success:
+                await wait.edit_text(f"✅ **সফল!**\n📱 `{number}`\n📨 `{raw[:200]}`", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+            else:
+                await wait.edit_text(f"❌ **ব্যর্থ!**\n📱 `{number}`\n📨 `{raw[:200]}`", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+            context.user_data['admin_state'] = None
             return
     
     # ============================================================
@@ -784,9 +892,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['admin_state'] = 'delete_user'
         return
     
-    # ============================================================
-    # 👥 ইউজার কন্ট্রোল এক্সিকিউট
-    # ============================================================
     if admin_state == 'block_user':
         try:
             target_id = int(message.strip())
@@ -796,7 +901,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_log(user_id, "Blocked User", target_id, f"User {target_id} blocked")
             await update.message.reply_text(f"🚫 ইউজার `{target_id}` ব্লক!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -809,7 +914,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_log(user_id, "Unblocked User", target_id, f"User {target_id} unblocked")
             await update.message.reply_text(f"✅ ইউজার `{target_id}` আনব্লক!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -818,7 +923,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_id = int(message.strip())
             conn = await get_db()
             cursor = await conn.execute(
-                "SELECT username, first_name, balance, status, is_premium, total_sms, total_bombing, total_bulk, join_date FROM users WHERE user_id = ?",
+                "SELECT username, first_name, balance, status, is_premium, total_sms, total_bulk, join_date FROM users WHERE user_id = ?",
                 (target_id,)
             )
             row = await cursor.fetchone()
@@ -831,18 +936,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📛 ইউজারনেম: @{row[0] or 'N/A'}\n"
                     f"💰 ব্যালেন্স: `{row[2]}`\n"
                     f"📨 এসএমএস: `{row[5]}`\n"
-                    f"💣 বোম্বার: `{row[6]}`\n"
-                    f"📤 বাল্ক: `{row[7]}`\n"
+                    f"📤 বাল্ক: `{row[6]}`\n"
                     f"👑 প্রিমিয়াম: {'✅' if is_prem else '❌'}\n"
                     f"🚦 স্ট্যাটাস: {row[3]}\n"
-                    f"📅 যোগদান: {row[8][:10] if row[8] else 'N/A'}",
+                    f"📅 যোগদান: {row[7][:10] if row[7] else 'N/A'}",
                     parse_mode="Markdown",
                     reply_markup=get_user_control_keyboard()
                 )
             else:
                 await update.message.reply_text("❌ ইউজার পাওয়া যায়নি!", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -856,7 +960,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_log(user_id, "Made Premium", target_id, f"User {target_id} made premium")
             await update.message.reply_text(f"👑 ইউজার `{target_id}` প্রিমিয়াম!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -866,10 +970,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn = await get_db()
             await conn.execute("UPDATE users SET is_premium = 0, premium_expiry = NULL WHERE user_id = ?", (target_id,))
             await conn.commit()
-            await admin_log(user_id, "Removed Premium", target_id, f"Premium removed from user {target_id}")
-            await update.message.reply_text(f"❌ ইউজার `{target_id}` থেকে প্রিমিয়াম রিমুভ!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await admin_log(user_id, "Removed Premium", target_id, f"Premium removed")
+            await update.message.reply_text(f"❌ ইউজার `{target_id}` প্রিমিয়াম রিমুভ!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -882,7 +986,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_log(user_id, "Deleted User", target_id, f"User {target_id} deleted")
             await update.message.reply_text(f"🗑️ ইউজার `{target_id}` ডিলিট!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
+            await update.message.reply_text("❌ ভুল আইডি!", parse_mode="Markdown", reply_markup=get_user_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -890,38 +994,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 📢 গ্রুপ কন্ট্রোল
     # ============================================================
     if message == "📢 Set Channel":
-        await update.message.reply_text("📢 **Set Channel**\n\nচ্যানেল ইউজারনেম দিন:", parse_mode="Markdown")
+        await update.message.reply_text("📢 চ্যানেল ইউজারনেম দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_channel'
         return
     if message == "👥 Set Group":
-        await update.message.reply_text("👥 **Set Group**\n\nগ্রুপ ইউজারনেম দিন:", parse_mode="Markdown")
+        await update.message.reply_text("👥 গ্রুপ ইউজারনেম দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_group'
         return
     if message == "🔗 Set Channel Link":
-        await update.message.reply_text("🔗 **Set Channel Link**\n\nচ্যানেল লিংক দিন:", parse_mode="Markdown")
+        await update.message.reply_text("🔗 চ্যানেল লিংক দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_channel_link'
         return
     if message == "🔗 Set Group Link":
-        await update.message.reply_text("🔗 **Set Group Link**\n\nগ্রুপ লিংক দিন:", parse_mode="Markdown")
+        await update.message.reply_text("🔗 গ্রুপ লিংক দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_group_link'
         return
     if message == "✏️ Set Welcome":
-        await update.message.reply_text("✏️ **Set Welcome**\n\nনতুন ওয়েলকাম মেসেজ দিন:", parse_mode="Markdown")
+        await update.message.reply_text("✏️ নতুন ওয়েলকাম মেসেজ দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_welcome'
         return
     if message == "🚫 Set Denied":
-        await update.message.reply_text("🚫 **Set Denied**\n\nডিনাই মেসেজ দিন:", parse_mode="Markdown")
+        await update.message.reply_text("🚫 ডিনাই মেসেজ দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_denied'
         return
     if message == "✅ Enable Join":
         await update_setting("join_required_enabled", "true")
-        await admin_log(user_id, "Enabled Join Required", None, "Join required enabled")
-        await update.message.reply_text("✅ **জয়েন রিকোয়ার্ড চালু!**", parse_mode="Markdown", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("✅ জয়েন রিকোয়ার্ড চালু!", reply_markup=get_group_control_keyboard())
         return
     if message == "❌ Disable Join":
         await update_setting("join_required_enabled", "false")
-        await admin_log(user_id, "Disabled Join Required", None, "Join required disabled")
-        await update.message.reply_text("❌ **জয়েন রিকোয়ার্ড বন্ধ!**", parse_mode="Markdown", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("❌ জয়েন রিকোয়ার্ড বন্ধ!", reply_markup=get_group_control_keyboard())
         return
     if message == "📊 View Settings":
         channel = get_setting('required_channel', 'সেট করা নেই')
@@ -941,54 +1043,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ============================================================
-    # 📢 গ্রুপ কন্ট্রোল এক্সিকিউট
-    # ============================================================
     if admin_state == 'set_channel':
         channel = message.strip()
-        if not channel.startswith('@'):
+        if not channel.startswith('@') and not channel.startswith('-'):
             channel = '@' + channel
         await update_setting("required_channel", channel)
-        await admin_log(user_id, "Set Channel", None, f"Channel set to {channel}")
         await update.message.reply_text(f"✅ চ্যানেল সেট: {channel}", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_group':
         group = message.strip()
-        if not group.startswith('@'):
+        if not group.startswith('@') and not group.startswith('-'):
             group = '@' + group
         await update_setting("required_group", group)
-        await admin_log(user_id, "Set Group", None, f"Group set to {group}")
         await update.message.reply_text(f"✅ গ্রুপ সেট: {group}", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_channel_link':
         await update_setting("required_channel_link", message.strip())
-        await admin_log(user_id, "Set Channel Link", None, f"Channel link set")
-        await update.message.reply_text(f"✅ চ্যানেল লিংক সেট!", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("✅ চ্যানেল লিংক সেট!", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_group_link':
         await update_setting("required_group_link", message.strip())
-        await admin_log(user_id, "Set Group Link", None, f"Group link set")
-        await update.message.reply_text(f"✅ গ্রুপ লিংক সেট!", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("✅ গ্রুপ লিংক সেট!", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_welcome':
         await update_setting("welcome_message", message.strip())
-        await admin_log(user_id, "Set Welcome Message", None, f"Welcome message updated")
-        await update.message.reply_text(f"✅ ওয়েলকাম মেসেজ সেট!", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("✅ ওয়েলকাম মেসেজ সেট!", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_denied':
         await update_setting("denied_message", message.strip())
-        await admin_log(user_id, "Set Denied Message", None, f"Denied message updated")
-        await update.message.reply_text(f"✅ ডিনাই মেসেজ সেট!", reply_markup=get_group_control_keyboard())
+        await update.message.reply_text("✅ ডিনাই মেসেজ সেট!", reply_markup=get_group_control_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -996,27 +1089,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 💰 ব্যালেন্স কন্ট্রোল
     # ============================================================
     if message == "🟢 Add Credit":
-        await update.message.reply_text("🟢 **Add Credit**\n\nFormat: `USER_ID AMOUNT`", parse_mode="Markdown")
+        await update.message.reply_text("🟢 Format: `USER_ID AMOUNT`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'add_credit'
         return
     if message == "🔴 Remove Credit":
-        await update.message.reply_text("🔴 **Remove Credit**\n\nFormat: `USER_ID AMOUNT`", parse_mode="Markdown")
+        await update.message.reply_text("🔴 Format: `USER_ID AMOUNT`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'remove_credit'
         return
     if message == "🎁 Gift All":
-        await update.message.reply_text("🎁 **Gift All**\n\nপরিমাণ দিন:", parse_mode="Markdown")
+        await update.message.reply_text("🎁 পরিমাণ দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'gift_all'
         return
     if message == "🎁 Gift User":
-        await update.message.reply_text("🎁 **Gift User**\n\nFormat: `USER_ID AMOUNT`", parse_mode="Markdown")
+        await update.message.reply_text("🎁 Format: `USER_ID AMOUNT`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'gift_user'
         return
     if message == "📝 Set Balance":
-        await update.message.reply_text("📝 **Set Balance**\n\nFormat: `USER_ID AMOUNT`", parse_mode="Markdown")
+        await update.message.reply_text("📝 Format: `USER_ID AMOUNT`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'set_balance'
         return
     if message == "🔄 Reset All":
-        await update.message.reply_text("🔄 **Reset All**\n\nসব ইউজারের ব্যালেন্স ০ করতে চান? (হ্যাঁ/না)", parse_mode="Markdown")
+        await update.message.reply_text("🔄 সব ইউজারের ব্যালেন্স ০ করতে চান? (হ্যাঁ/না)", parse_mode="Markdown")
         context.user_data['admin_state'] = 'reset_all'
         return
     if message == "📊 Report":
@@ -1034,42 +1127,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ============================================================
-    # 💰 ব্যালেন্স কন্ট্রোল এক্সিকিউট
-    # ============================================================
     if admin_state == 'add_credit':
         try:
             parts = message.split()
-            if len(parts) != 2:
-                await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
-                return
             target_id, amount = int(parts[0]), int(parts[1])
             conn = await get_db()
             await conn.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
             await conn.commit()
             await track_transaction(target_id, "add", amount, "Admin added")
-            await admin_log(user_id, "Added Credit", target_id, f"Added {amount} credits")
-            await update.message.reply_text(f"✅ ইউজার `{target_id}` কে `{amount}` ক্রেডিট যোগ!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text(f"✅ `{target_id}` কে `{amount}` ক্রেডিট যোগ!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'remove_credit':
         try:
             parts = message.split()
-            if len(parts) != 2:
-                await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
-                return
             target_id, amount = int(parts[0]), int(parts[1])
             conn = await get_db()
             await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, target_id))
             await conn.commit()
             await track_transaction(target_id, "remove", -amount, "Admin removed")
-            await admin_log(user_id, "Removed Credit", target_id, f"Removed {amount} credits")
-            await update.message.reply_text(f"✅ ইউজার `{target_id}` থেকে `{amount}` ক্রেডিট কাটা!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text(f"✅ `{target_id}` থেকে `{amount}` কাটা!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1081,45 +1163,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await conn.commit()
             cursor = await conn.execute("SELECT COUNT(*) FROM users")
             count = await cursor.fetchone()
-            await admin_log(user_id, "Gifted All", None, f"Gifted {amount} credits to all users")
-            await update.message.reply_text(f"🎁 {count[0]} জন ইউজারকে `{amount}` ক্রেডিট উপহার!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text(f"🎁 {count[0]} জনকে `{amount}` ক্রেডিট!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         except:
-            await update.message.reply_text("❌ ভুল অ্যামাউন্ট! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("❌ সংখ্যা দিন!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'gift_user':
         try:
             parts = message.split()
-            if len(parts) != 2:
-                await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
-                return
             target_id, amount = int(parts[0]), int(parts[1])
             conn = await get_db()
             await conn.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
             await conn.commit()
             await track_transaction(target_id, "gift", amount, "Admin gifted")
-            await admin_log(user_id, "Gifted User", target_id, f"Gifted {amount} credits")
-            await update.message.reply_text(f"🎁 ইউজার `{target_id}` কে `{amount}` ক্রেডিট উপহার!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text(f"🎁 `{target_id}` কে `{amount}` ক্রেডিট!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'set_balance':
         try:
             parts = message.split()
-            if len(parts) != 2:
-                await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
-                return
             target_id, amount = int(parts[0]), int(parts[1])
             conn = await get_db()
             await conn.execute("UPDATE users SET balance = ? WHERE user_id = ?", (amount, target_id))
             await conn.commit()
-            await admin_log(user_id, "Set Balance", target_id, f"Set balance to {amount}")
-            await update.message.reply_text(f"✅ ইউজার `{target_id}` এর ব্যালেন্স `{amount}` সেট!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text(f"✅ `{target_id}` ব্যালেন্স `{amount}` সেট!", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("❌ Format: `USER_ID AMOUNT`", parse_mode="Markdown", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1128,8 +1201,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn = await get_db()
             await conn.execute("UPDATE users SET balance = 0")
             await conn.commit()
-            await admin_log(user_id, "Reset All Balance", None, "All balances reset to 0")
-            await update.message.reply_text("🔄 সব ইউজারের ব্যালেন্স ০ করা হয়েছে!", reply_markup=get_balance_keyboard())
+            await update.message.reply_text("🔄 সব ব্যালেন্স ০!", reply_markup=get_balance_keyboard())
         else:
             await update.message.reply_text("❌ বাতিল!", reply_markup=get_balance_keyboard())
         context.user_data['admin_state'] = None
@@ -1139,22 +1211,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🎟️ রিডিম কন্ট্রোল
     # ============================================================
     if message == "➕ Create Code":
-        await update.message.reply_text("➕ **Create Code**\n\nFormat: `CODE AMOUNT USAGES`\nExample: `BONUS25 25 50`", parse_mode="Markdown")
+        await update.message.reply_text("➕ Format: `CODE AMOUNT USAGES`\nExample: `BONUS25 25 50`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'create_code'
         return
     if message == "❌ Delete Code":
-        await update.message.reply_text("❌ **Delete Code**\n\nকোড দিন:", parse_mode="Markdown")
+        await update.message.reply_text("❌ কোড দিন:", parse_mode="Markdown")
         context.user_data['admin_state'] = 'delete_code'
         return
     if message == "🗑️ Delete All":
         conn = await get_db()
         await conn.execute("DELETE FROM redeem_codes")
         await conn.commit()
-        await admin_log(user_id, "Deleted All Codes", None, "All redeem codes deleted")
-        await update.message.reply_text("🗑️ **সব কোড ডিলিট!**", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
+        await update.message.reply_text("🗑️ সব কোড ডিলিট!", reply_markup=get_redeem_keyboard())
         return
     if message == "✏️ Edit Code":
-        await update.message.reply_text("✏️ **Edit Code**\n\nFormat: `CODE NEW_AMOUNT NEW_USAGES`", parse_mode="Markdown")
+        await update.message.reply_text("✏️ Format: `CODE NEW_AMOUNT NEW_USAGES`", parse_mode="Markdown")
         context.user_data['admin_state'] = 'edit_code'
         return
     if message == "📋 List Codes":
@@ -1171,15 +1242,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📭 কোনো কোড নেই!", reply_markup=get_redeem_keyboard())
         return
     
-    # ============================================================
-    # 🎟️ রিডিম কন্ট্রোল এক্সিকিউট
-    # ============================================================
     if admin_state == 'create_code':
         try:
             parts = message.split()
-            if len(parts) != 3:
-                await update.message.reply_text("❌ Format: `CODE AMOUNT USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
-                return
             code, amount, usages = parts[0].upper(), int(parts[1]), int(parts[2])
             conn = await get_db()
             await conn.execute(
@@ -1187,10 +1252,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (code, amount, usages, user_id)
             )
             await conn.commit()
-            await admin_log(user_id, "Created Code", None, f"Created code {code} with {amount}x{usages}")
             await update.message.reply_text(f"✅ কোড `{code}` তৈরি! (💰{amount})", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `CODE AMOUNT USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
+            await update.message.reply_text("❌ Format: `CODE AMOUNT USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1200,195 +1264,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn = await get_db()
             await conn.execute("DELETE FROM redeem_codes WHERE code = ?", (code,))
             await conn.commit()
-            await admin_log(user_id, "Deleted Code", None, f"Deleted code {code}")
             await update.message.reply_text(f"🗑️ কোড `{code}` ডিলিট!", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! সঠিক কোড দিন।", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
+            await update.message.reply_text("❌ ত্রুটি!", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         context.user_data['admin_state'] = None
         return
     
     if admin_state == 'edit_code':
         try:
             parts = message.split()
-            if len(parts) != 3:
-                await update.message.reply_text("❌ Format: `CODE NEW_AMOUNT NEW_USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
-                return
             code, amount, usages = parts[0].upper(), int(parts[1]), int(parts[2])
             conn = await get_db()
             await conn.execute("UPDATE redeem_codes SET amount = ?, usages = ? WHERE code = ?", (amount, usages, code))
             await conn.commit()
-            await admin_log(user_id, "Edited Code", None, f"Edited code {code} to {amount}x{usages}")
             await update.message.reply_text(f"✅ কোড `{code}` আপডেট!", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `CODE NEW_AMOUNT NEW_USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
-        context.user_data['admin_state'] = None
-        return
-    
-    # ============================================================
-    # 📡 API ম্যানেজার
-    # ============================================================
-    if message == "➕ Add API":
-        await update.message.reply_text(
-            "➕ **Add API**\n\nFormat: `NAME|METHOD|URL|BODY|TYPE`\nExample: `MyAPI|POST|https://api.com|{\"phone\":\"{phone}\"}|bomber`",
-            parse_mode="Markdown"
-        )
-        context.user_data['admin_state'] = 'add_api'
-        return
-    if message == "✏️ Edit API":
-        conn = await get_db()
-        cursor = await conn.execute("SELECT id, name, api_type FROM apis")
-        apis = await cursor.fetchall()
-        if apis:
-            response = "✏️ **Edit API**\n\nAPI আইডি দিন:\n\n"
-            for api in apis:
-                response += f"`{api[0]}` → {api[1]} ({api[2]})\n"
-            await update.message.reply_text(response, parse_mode="Markdown")
-            context.user_data['admin_state'] = 'edit_api'
-        else:
-            await update.message.reply_text("📭 কোনো API নেই!", reply_markup=get_api_keyboard())
-        return
-    if message == "🗑️ Delete API":
-        conn = await get_db()
-        cursor = await conn.execute("SELECT id, name FROM apis")
-        apis = await cursor.fetchall()
-        if apis:
-            response = "🗑️ **Delete API**\n\nAPI আইডি দিন:\n\n"
-            for api in apis:
-                response += f"`{api[0]}` → {api[1]}\n"
-            await update.message.reply_text(response, parse_mode="Markdown")
-            context.user_data['admin_state'] = 'delete_api'
-        else:
-            await update.message.reply_text("📭 কোনো API নেই!", reply_markup=get_api_keyboard())
-        return
-    if message == "🔄 Toggle API":
-        conn = await get_db()
-        cursor = await conn.execute("SELECT id, name, is_active FROM apis")
-        apis = await cursor.fetchall()
-        if apis:
-            response = "🔄 **Toggle API**\n\nAPI আইডি দিন:\n\n"
-            for api in apis:
-                status = "🟢" if api[2] else "🔴"
-                response += f"{status} `{api[0]}` → {api[1]}\n"
-            await update.message.reply_text(response, parse_mode="Markdown")
-            context.user_data['admin_state'] = 'toggle_api'
-        else:
-            await update.message.reply_text("📭 কোনো API নেই!", reply_markup=get_api_keyboard())
-        return
-    if message == "📋 View APIs":
-        conn = await get_db()
-        cursor = await conn.execute("SELECT id, name, method, url, is_active, api_type FROM apis")
-        apis = await cursor.fetchall()
-        if apis:
-            response = "📋 **সব API**\n━━━━━━━━━━━━━━━━━━━\n\n"
-            for api in apis:
-                status = "🟢 Active" if api[4] else "🔴 Inactive"
-                response += f"`{api[0]}` → {api[1]} ({api[5]})\n"
-                response += f"   📝 {api[2]}\n"
-                response += f"   🚦 {status}\n\n"
-            await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_api_keyboard())
-        else:
-            await update.message.reply_text("📭 কোনো API নেই!", reply_markup=get_api_keyboard())
-        return
-    
-    # ============================================================
-    # 📡 API ম্যানেজার এক্সিকিউট
-    # ============================================================
-    if admin_state == 'add_api':
-        try:
-            parts = message.split('|')
-            if len(parts) != 5:
-                await update.message.reply_text("❌ Format: `NAME|METHOD|URL|BODY|TYPE`", parse_mode="Markdown", reply_markup=get_api_keyboard())
-                return
-            name, method, url, body, api_type = parts[0].strip(), parts[1].strip().upper(), parts[2].strip(), parts[3].strip(), parts[4].strip().lower()
-            json.loads(body)
-            conn = await get_db()
-            await conn.execute(
-                "INSERT INTO apis (name, method, url, body, api_type) VALUES (?, ?, ?, ?, ?)",
-                (name, method, url, body, api_type)
-            )
-            await conn.commit()
-            await load_apis()
-            await admin_log(user_id, "Added API", None, f"Added API {name} ({api_type})")
-            await update.message.reply_text(f"✅ API `{name}` যোগ! ({api_type})", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        except:
-            await update.message.reply_text("❌ ত্রুটি! JSON চেক করুন।", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        context.user_data['admin_state'] = None
-        return
-    
-    if admin_state == 'edit_api':
-        try:
-            api_id = int(message.strip())
-            conn = await get_db()
-            cursor = await conn.execute("SELECT name, method, url, body, api_type FROM apis WHERE id = ?", (api_id,))
-            row = await cursor.fetchone()
-            if row:
-                context.user_data['edit_api_id'] = api_id
-                context.user_data['admin_state'] = 'edit_api_data'
-                await update.message.reply_text(
-                    f"✏️ **Edit API**\n\nবর্তমান: {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]}\n\nনতুন ডেটা দিন: `NAME|METHOD|URL|BODY|TYPE`",
-                    parse_mode="Markdown"
-                )
-            else:
-                await update.message.reply_text("❌ API পাওয়া যায়নি!", reply_markup=get_api_keyboard())
-        except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        return
-    
-    if admin_state == 'edit_api_data':
-        try:
-            api_id = context.user_data.get('edit_api_id')
-            parts = message.split('|')
-            if len(parts) != 5:
-                await update.message.reply_text("❌ Format: `NAME|METHOD|URL|BODY|TYPE`", parse_mode="Markdown", reply_markup=get_api_keyboard())
-                return
-            name, method, url, body, api_type = parts[0].strip(), parts[1].strip().upper(), parts[2].strip(), parts[3].strip(), parts[4].strip().lower()
-            json.loads(body)
-            conn = await get_db()
-            await conn.execute(
-                "UPDATE apis SET name = ?, method = ?, url = ?, body = ?, api_type = ? WHERE id = ?",
-                (name, method, url, body, api_type, api_id)
-            )
-            await conn.commit()
-            await load_apis()
-            await admin_log(user_id, "Edited API", None, f"Edited API {name}")
-            await update.message.reply_text(f"✅ API `{name}` আপডেট!", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        except:
-            await update.message.reply_text("❌ ত্রুটি! Format: `NAME|METHOD|URL|BODY|TYPE`", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        context.user_data['admin_state'] = None
-        context.user_data.pop('edit_api_id', None)
-        return
-    
-    if admin_state == 'delete_api':
-        try:
-            api_id = int(message.strip())
-            conn = await get_db()
-            await conn.execute("DELETE FROM apis WHERE id = ?", (api_id,))
-            await conn.commit()
-            await load_apis()
-            await admin_log(user_id, "Deleted API", None, f"Deleted API ID {api_id}")
-            await update.message.reply_text(f"🗑️ API ID `{api_id}` ডিলিট!", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_api_keyboard())
-        context.user_data['admin_state'] = None
-        return
-    
-    if admin_state == 'toggle_api':
-        try:
-            api_id = int(message.strip())
-            conn = await get_db()
-            cursor = await conn.execute("SELECT is_active FROM apis WHERE id = ?", (api_id,))
-            row = await cursor.fetchone()
-            if row:
-                new_status = 0 if row[0] else 1
-                await conn.execute("UPDATE apis SET is_active = ? WHERE id = ?", (new_status, api_id))
-                await conn.commit()
-                await load_apis()
-                await admin_log(user_id, "Toggled API", None, f"Toggled API ID {api_id} to {'Active' if new_status else 'Inactive'}")
-                await update.message.reply_text(f"🔄 API টগল!", parse_mode="Markdown", reply_markup=get_api_keyboard())
-            else:
-                await update.message.reply_text("❌ API পাওয়া যায়নি!", reply_markup=get_api_keyboard())
-        except:
-            await update.message.reply_text("❌ ভুল আইডি! সংখ্যা দিন।", parse_mode="Markdown", reply_markup=get_api_keyboard())
+            await update.message.reply_text("❌ Format: `CODE NEW_AMOUNT NEW_USAGES`", parse_mode="Markdown", reply_markup=get_redeem_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1401,32 +1292,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cmd == 'DAILY' and len(parts) >= 2:
             if parts[1].upper() == 'ON':
                 await update_setting("daily_bonus_enabled", "true")
-                await admin_log(user_id, "Enabled Daily Bonus", None, "Daily bonus enabled")
                 await update.message.reply_text("✅ ডেইলি বোনাস চালু!", reply_markup=get_admin_keyboard())
             elif parts[1].upper() == 'OFF':
                 await update_setting("daily_bonus_enabled", "false")
-                await admin_log(user_id, "Disabled Daily Bonus", None, "Daily bonus disabled")
                 await update.message.reply_text("❌ ডেইলি বোনাস বন্ধ!", reply_markup=get_admin_keyboard())
             elif parts[1].upper() == 'AMOUNT' and len(parts) >= 3:
                 await update_setting("daily_bonus_amount", parts[2])
-                await admin_log(user_id, "Set Daily Bonus Amount", None, f"Daily bonus amount set to {parts[2]}")
-                await update.message.reply_text(f"💰 ডেইলি বোনাস `{parts[2]}` সেট!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+                await update.message.reply_text(f"💰 বোনাস `{parts[2]}`!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
             elif parts[1].upper() == 'COOLDOWN' and len(parts) >= 3:
                 await update_setting("daily_bonus_cooldown", parts[2])
-                await admin_log(user_id, "Set Daily Bonus Cooldown", None, f"Daily bonus cooldown set to {parts[2]}")
-                await update.message.reply_text(f"⏰ কুলডাউন `{parts[2]}` ঘণ্টা সেট!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
-            else:
-                await update.message.reply_text("❌ ভুল কমান্ড!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
+                await update.message.reply_text(f"⏰ কুলডাউন `{parts[2]}` ঘণ্টা!", parse_mode="Markdown", reply_markup=get_admin_keyboard())
         else:
-            await update.message.reply_text(
-                "❌ **ভুল কমান্ড!**\n\n"
-                "`DAILY ON` - চালু\n"
-                "`DAILY OFF` - বন্ধ\n"
-                "`DAILY AMOUNT 10` - বোনাস পরিবর্তন\n"
-                "`DAILY COOLDOWN 12` - কুলডাউন",
-                parse_mode="Markdown",
-                reply_markup=get_admin_keyboard()
-            )
+            await update.message.reply_text("❌ ভুল কমান্ড!", reply_markup=get_admin_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1445,8 +1322,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(0.02)
             except:
                 pass
-        await admin_log(user_id, "Broadcast", None, f"Broadcast sent to {success} users")
-        await update.message.reply_text(f"✅ {success} জনে ব্রডকাস্ট সম্পূর্ণ!", reply_markup=get_admin_keyboard())
+        await update.message.reply_text(f"✅ {success} জনে ব্রডকাস্ট!", reply_markup=get_admin_keyboard())
         context.user_data['admin_state'] = None
         return
     
@@ -1458,11 +1334,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = 'sms_number'
         return
     
-    if message == "💣 SMS Bomber":
-        await update.message.reply_text("💣 **SMS Bomber**\n\nটার্গেট নম্বর দিন:", parse_mode="Markdown")
-        context.user_data['state'] = 'bomber_number'
-        return
-    
     if message == "📤 Bulk SMS":
         await update.message.reply_text("📤 **Bulk SMS**\n\nনম্বরগুলো দিন (কমা বা স্পেস দিয়ে):", parse_mode="Markdown")
         context.user_data['state'] = 'bulk_numbers'
@@ -1471,25 +1342,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message == "👤 My Profile":
         conn = await get_db()
         cursor = await conn.execute(
-            "SELECT username, first_name, balance, total_sms, total_bombing, total_bulk, is_premium, premium_expiry, join_date FROM users WHERE user_id = ?",
+            "SELECT username, first_name, balance, total_sms, total_bulk, is_premium, premium_expiry, join_date FROM users WHERE user_id = ?",
             (user_id,)
         )
         row = await cursor.fetchone()
         if row:
-            is_prem = row[6] == 1 and not is_premium_expired(row[7])
+            is_prem = row[5] == 1 and not is_premium_expired(row[6])
             msg = f"👤 **প্রোফাইল**\n━━━━━━━━━━━━━━━━━━━\n\n"
             msg += f"👤 নাম: {row[1] or 'N/A'}\n"
             msg += f"📛 ইউজারনেম: @{row[0] or 'N/A'}\n"
             msg += f"💰 ব্যালেন্স: `{row[2]}`\n"
             msg += f"📨 এসএমএস: `{row[3]}`\n"
-            msg += f"💣 বোম্বার: `{row[4]}`\n"
-            msg += f"📤 বাল্ক: `{row[5]}`\n"
+            msg += f"📤 বাল্ক: `{row[4]}`\n"
             msg += f"👑 প্রিমিয়াম: {'✅' if is_prem else '❌'}\n"
-            msg += f"📅 যোগদান: {row[8][:10] if row[8] else 'N/A'}\n\n"
-            msg += f"📌 রেফারেল কোড: `{generate_referral_code(user_id)}`"
+            msg += f"📅 যোগদান: {row[7][:10] if row[7] else 'N/A'}\n\n"
+            msg += f"📌 রেফারেল: `{generate_referral_code(user_id)}`"
             await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
-        else:
-            await update.message.reply_text("❌ প্রোফাইল পাওয়া যায়নি!", parse_mode="Markdown")
+        return
+    
+    if message == "📊 My Stats":
+        conn = await get_db()
+        cursor = await conn.execute(
+            "SELECT total_sms, total_bulk, balance FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            # আজকের SMS
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM sms_history WHERE user_id = ? AND DATE(sent_at) = DATE('now')",
+                (user_id,)
+            )
+            today = await cursor.fetchone()
+            # সফল SMS
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM sms_history WHERE user_id = ? AND status = 'success'",
+                (user_id,)
+            )
+            success = await cursor.fetchone()
+            # ব্যর্থ
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM sms_history WHERE user_id = ? AND status = 'failed'",
+                (user_id,)
+            )
+            failed = await cursor.fetchone()
+            
+            await update.message.reply_text(
+                f"📊 **আপনার স্ট্যাটস**\n━━━━━━━━━━━━━━━━━━━\n\n"
+                f"💰 ব্যালেন্স: `{row[2]}`\n"
+                f"📨 মোট SMS: `{row[0]}`\n"
+                f"📤 Bulk অপারেশন: `{row[1]}`\n"
+                f"📅 আজকের SMS: `{today[0]}`\n"
+                f"✅ সফল: `{success[0]}`\n"
+                f"❌ ব্যর্থ: `{failed[0]}`",
+                parse_mode="Markdown",
+                reply_markup=get_main_keyboard()
+            )
         return
     
     if message == "🎁 Redeem Code":
@@ -1498,12 +1406,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if message == "📞 Support":
+        support = get_setting('support_username', ADMIN_USERNAME)
         keyboard = [
-            [InlineKeyboardButton("📩 অ্যাডমিন", url=f"https://t.me/{ADMIN_USERNAME}")],
+            [InlineKeyboardButton("📩 অ্যাডমিন", url=f"https://t.me/{support}")],
             [InlineKeyboardButton("📢 চ্যানেল", url="https://t.me/RobiEntertainment")]
         ]
         await update.message.reply_text(
-            f"📞 **যোগাযোগ**\n\n👨‍💻 অ্যাডমিন: @{ADMIN_USERNAME}",
+            f"📞 **যোগাযোগ**\n\n👨‍💻 অ্যাডমিন: @{support}",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -1511,14 +1420,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if message == "⭐ Daily Bonus":
         if get_setting('daily_bonus_enabled', 'false') != 'true':
-            await update.message.reply_text("❌ ডেইলি বোনাস বন্ধ!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await update.message.reply_text("❌ ডেইলি বোনাস বন্ধ!", reply_markup=get_main_keyboard())
             return
         conn = await get_db()
         cursor = await conn.execute("SELECT daily_bonus_date, is_premium, premium_expiry FROM users WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
         if row:
             is_prem = row[1] == 1 and not is_premium_expired(row[2])
-            bonus = int(get_setting('premium_bonus' if is_prem else 'daily_bonus_amount', '10' if is_prem else '5'))
+            bonus = int(get_setting('premium_bonus' if is_prem else 'daily_bonus_amount', '10' if is_prem else '1'))
             cooldown = int(get_setting('daily_bonus_cooldown', '24'))
             if row[0]:
                 try:
@@ -1527,7 +1436,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         remaining = (cooldown * 3600) - (datetime.now() - last).total_seconds()
                         hours = int(remaining // 3600)
                         minutes = int((remaining % 3600) // 60)
-                        await update.message.reply_text(f"⏳ {hours}ঘ {minutes}মি বাকি", parse_mode="Markdown", reply_markup=get_main_keyboard())
+                        await update.message.reply_text(f"⏳ {hours}ঘ {minutes}মি বাকি", reply_markup=get_main_keyboard())
                         return
                 except:
                     pass
@@ -1537,9 +1446,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await conn.commit()
             await track_transaction(user_id, "bonus", bonus, "Daily bonus")
-            await update.message.reply_text(f"🎉 +{bonus} ক্রেডিট!", parse_mode="Markdown", reply_markup=get_main_keyboard())
-        else:
-            await update.message.reply_text("❌ ত্রুটি!", parse_mode="Markdown")
+            await update.message.reply_text(f"🎉 +{bonus} ক্রেডিট!", reply_markup=get_main_keyboard())
         return
     
     if message == "🏆 Leaderboard":
@@ -1553,8 +1460,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name = user[2] or user[1] or f"User{user[0]}"
                 response += f"{medals[i]} `{user[0]}` - {name} - 💰{user[3]}\n"
             await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_main_keyboard())
-        else:
-            await update.message.reply_text("📊 কোনো ইউজার নেই!", parse_mode="Markdown", reply_markup=get_main_keyboard())
         return
     
     if message == "👑 Premium":
@@ -1564,9 +1469,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row:
             is_prem = row[0] == 1 and not is_premium_expired(row[1])
             text = "👑 **প্রিমিয়াম**\n━━━━━━━━━━━━━━━━━━━\n\n"
-            text += "🔹 স্মার্ট বোম্বিং\n"
-            text += "🔹 এক্সট্রা বোনাস (+৩)\n"
-            text += "🔹 কম SMS খরচ (০.৫)\n\n"
+            text += "🔹 কম SMS খরচ\n"
+            text += "🔹 এক্সট্রা ডেইলি বোনাস\n"
+            text += "🔹 প্রায়োরিটি সাপোর্ট\n\n"
             if is_prem:
                 text += "✅ **আপনি প্রিমিয়াম!**"
             else:
@@ -1575,37 +1480,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"💎 {price} ক্রেডিট / {duration} দিন\n"
                 text += "📌 /buy_premium"
             await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_main_keyboard())
-        else:
-            await update.message.reply_text("❌ পাওয়া যায়নি!", parse_mode="Markdown")
-        return
-    
-    if message == "🎯 Smart Bombing":
-        await update.message.reply_text("🎯 **Smart Bombing**\n\nটার্গেট নম্বর দিন:", parse_mode="Markdown")
-        context.user_data['state'] = 'smart_bombing'
         return
     
     # ============================================================
     # 🔮 ইউটিলিটিস
     # ============================================================
     if message == "🔮 Utilities":
-        await update.message.reply_text("🔮 **ইউটিলিটিস**", parse_mode="Markdown", reply_markup=get_utilities_keyboard())
+        await update.message.reply_text("🔮 **ইউটিলিটিস**", reply_markup=get_utilities_keyboard())
         return
     
-    # ============================================================
-    # 🎯 ইউটিলিটি ফাংশন
-    # ============================================================
     if message == "🌐 IP Info":
         result = await get_ip_info()
         await update.message.reply_text(result, parse_mode="Markdown", reply_markup=get_utilities_keyboard())
         return
     
     if message == "📮 ZIP Code":
-        await update.message.reply_text("📮 **ZIP Code**\n\nFormat: `COUNTRY ZIP`\nExample: `us 33162`", parse_mode="Markdown")
+        await update.message.reply_text("📮 Format: `COUNTRY ZIP`\nExample: `us 33162`", parse_mode="Markdown")
         context.user_data['state'] = 'zip_info'
         return
     
     if message == "🎬 Movie":
-        await update.message.reply_text("🎬 **Movie Info**\n\nমুভির নাম দিন:", parse_mode="Markdown")
+        await update.message.reply_text("🎬 মুভির নাম দিন:", parse_mode="Markdown")
         context.user_data['state'] = 'movie_info'
         return
     
@@ -1627,192 +1522,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         number = context.user_data.get('sms_number')
         msg = message.strip()
         if not number:
-            await update.message.reply_text("❌ ত্রুটি!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await update.message.reply_text("❌ ত্রুটি!", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
+        
+        cost = int(get_setting('sms_cost', '1'))
         conn = await get_db()
         cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
-        if not row or row[0] < 1:
-            await update.message.reply_text("❌ পর্যাপ্ত ক্রেডিট নেই!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+        if not row or row[0] < cost:
+            await update.message.reply_text(f"❌ প্রয়োজন: {cost} ক্রেডিট", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
-        await update.message.reply_text(f"⏳ পাঠানো হচ্ছে...", parse_mode="Markdown")
-        success, response = await send_sms_api(number, msg)
+        
+        wait_msg = await update.message.reply_text(f"⏳ পাঠানো হচ্ছে...", parse_mode="Markdown")
+        success, response, raw = await send_sms_api(number, msg)
+        
+        await save_sms_history(user_id, number, msg, "success" if success else "failed", raw)
+        
         if success:
-            conn = await get_db()
-            await conn.execute("UPDATE users SET balance = balance - 1, total_sms = total_sms + 1 WHERE user_id = ?", (user_id,))
+            await conn.execute(
+                "UPDATE users SET balance = balance - ?, total_sms = total_sms + 1 WHERE user_id = ?",
+                (cost, user_id)
+            )
             await conn.commit()
-            await track_transaction(user_id, "spend", -1, f"SMS to {number}")
-            await update.message.reply_text(f"✅ **সফল!**\n📱 `{number}`", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await track_transaction(user_id, "spend", -cost, f"SMS to {number}")
+            await wait_msg.edit_text(
+                f"✅ **সফল!**\n━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📱 `{number}`\n"
+                f"💬 {msg[:100]}\n"
+                f"💰 খরচ: {cost}",
+                parse_mode="Markdown",
+                reply_markup=get_main_keyboard()
+            )
         else:
-            await update.message.reply_text(f"❌ **ব্যর্থ!**\n{response}", parse_mode="Markdown", reply_markup=get_main_keyboard())
-        context.user_data.clear()
-        return
-    
-    if state == 'bomber_number':
-        number = message.strip()
-        valid, msg = validate_phone(number)
-        if not valid:
-            await update.message.reply_text(f"❌ {msg}", parse_mode="Markdown")
-            return
-        context.user_data['bomber_number'] = number
-        context.user_data['state'] = 'bomber_amount'
-        max_amount = int(get_setting('max_bomber_amount', '50'))
-        await update.message.reply_text(f"✅ `{number}`\n\n💥 পরিমাণ (১-{max_amount}):", parse_mode="Markdown")
-        return
-    
-    if state == 'bomber_amount':
-        if not BOMBING_ACTIVE:
-            await update.message.reply_text("⛔ বোম্বিং বন্ধ!", parse_mode="Markdown", reply_markup=get_main_keyboard())
-            context.user_data.clear()
-            return
-        try:
-            amount = int(message.strip())
-            max_amount = int(get_setting('max_bomber_amount', '50'))
-            if amount < 1 or amount > max_amount:
-                await update.message.reply_text(f"❌ ১-{max_amount} এর মধ্যে দিন!", parse_mode="Markdown")
-                return
-        except:
-            await update.message.reply_text("❌ সংখ্যা দিন!", parse_mode="Markdown")
-            return
-        number = context.user_data.get('bomber_number')
-        if not number:
-            await update.message.reply_text("❌ ত্রুটি!", parse_mode="Markdown", reply_markup=get_main_keyboard())
-            context.user_data.clear()
-            return
-        total_sms = len(BOMBER_APIS) * amount
-        conn = await get_db()
-        cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-        row = await cursor.fetchone()
-        if not row or row[0] < total_sms:
-            await update.message.reply_text(f"❌ প্রয়োজন: {total_sms} ক্রেডিট", parse_mode="Markdown", reply_markup=get_main_keyboard())
-            context.user_data.clear()
-            return
-        
-        async def call_api(api, phone):
-            try:
-                body = replace_phone(api.get('body', {}), phone)
-                if api.get('method', 'POST').upper() == 'GET':
-                    return await safe_api_call(api.get('url'), method='GET', params=body)
-                else:
-                    return await safe_api_call(api.get('url'), method='POST', data=body)
-            except:
-                return False, None, None
-        
-        msg = await update.message.reply_text(f"⏳ বোম্বিং শুরু!\n📱 {number}", parse_mode="Markdown")
-        success_count = 0
-        failed_count = 0
-        
-        for api in BOMBER_APIS:
-            tasks = [call_api(api, number) for _ in range(amount)]
-            results = await asyncio.gather(*tasks)
-            
-            for success, text, status in results:
-                if not BOMBING_ACTIVE:
-                    await msg.edit_text("⛔ বন্ধ!", parse_mode="Markdown")
-                    context.user_data.clear()
-                    return
-                if success and text and check_success(text, status):
-                    success_count += 1
-                else:
-                    failed_count += 1
-                
-                total_done = success_count + failed_count
-                if total_done % 10 == 0:
-                    try:
-                        bar = progress_bar(total_done, total_sms)
-                        await msg.edit_text(f"⏳ বোম্বিং...\n{bar}\n✅ {success_count} | ❌ {failed_count}", parse_mode="Markdown")
-                    except:
-                        pass
-        
-        conn = await get_db()
-        await conn.execute(
-            "UPDATE users SET balance = balance - ?, total_bombing = total_bombing + 1 WHERE user_id = ?",
-            (total_sms, user_id)
-        )
-        await conn.commit()
-        await track_transaction(user_id, "spend", -total_sms, f"Bombing to {number}")
-        await msg.edit_text(
-            f"✅ **সম্পূর্ণ!**\n━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📱 `{number}`\n"
-            f"✅ সফল: {success_count}\n"
-            f"❌ ব্যর্থ: {failed_count}\n"
-            f"💰 খরচ: {total_sms}",
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
-        )
-        context.user_data.clear()
-        return
-    
-    if state == 'smart_bombing':
-        if not BOMBING_ACTIVE:
-            await update.message.reply_text("⛔ বোম্বিং বন্ধ!", parse_mode="Markdown", reply_markup=get_main_keyboard())
-            context.user_data.clear()
-            return
-        number = message.strip()
-        valid, msg = validate_phone(number)
-        if not valid:
-            await update.message.reply_text(f"❌ {msg}", parse_mode="Markdown")
-            return
-        smart_apis = BOMBER_APIS[:20]
-        amount_per_api = 5
-        total_sms = len(smart_apis) * amount_per_api
-        conn = await get_db()
-        cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-        row = await cursor.fetchone()
-        if not row or row[0] < total_sms:
-            await update.message.reply_text(f"❌ প্রয়োজন: {total_sms} ক্রেডিট", parse_mode="Markdown", reply_markup=get_main_keyboard())
-            context.user_data.clear()
-            return
-        
-        async def call_api(api, phone):
-            try:
-                body = replace_phone(api.get('body', {}), phone)
-                if api.get('method', 'POST').upper() == 'GET':
-                    return await safe_api_call(api.get('url'), method='GET', params=body)
-                else:
-                    return await safe_api_call(api.get('url'), method='POST', data=body)
-            except:
-                return False, None, None
-        
-        msg = await update.message.reply_text(f"🧠 **স্মার্ট বোম্বিং শুরু!**\n📱 {number}", parse_mode="Markdown")
-        success_count = 0
-        failed_count = 0
-        
-        for api in smart_apis:
-            tasks = [call_api(api, number) for _ in range(amount_per_api)]
-            results = await asyncio.gather(*tasks)
-            
-            for success, text, status in results:
-                if not BOMBING_ACTIVE:
-                    await msg.edit_text("⛔ বন্ধ!", parse_mode="Markdown")
-                    context.user_data.clear()
-                    return
-                if success and text and check_success(text, status):
-                    success_count += 1
-                else:
-                    failed_count += 1
-        
-        cost = total_sms
-        conn = await get_db()
-        await conn.execute(
-            "UPDATE users SET balance = balance - ? WHERE user_id = ?",
-            (cost, user_id)
-        )
-        await conn.commit()
-        await track_transaction(user_id, "spend", -cost, f"Smart bombing to {number}")
-        await msg.edit_text(
-            f"✅ **স্মার্ট বোম্বিং সম্পূর্ণ!**\n━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📱 `{number}`\n"
-            f"📡 এপিআই: {len(smart_apis)}\n"
-            f"💥 মোট: {total_sms}\n"
-            f"✅ সফল: {success_count}\n"
-            f"❌ ব্যর্থ: {failed_count}\n"
-            f"💰 খরচ: {cost}",
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
-        )
+            await wait_msg.edit_text(
+                f"❌ **ব্যর্থ!**\n━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📱 `{number}`\n"
+                f"📨 Response: `{raw[:200]}`",
+                parse_mode="Markdown",
+                reply_markup=get_main_keyboard()
+            )
         context.user_data.clear()
         return
     
@@ -1825,14 +1575,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if num in seen:
                 continue
             seen.add(num)
-            if num.isdigit() and len(num) == 11:
+            v, _ = validate_phone(num)
+            if v:
                 valid.append(num)
         if not valid:
-            await update.message.reply_text("❌ কোনো ভ্যালিড নম্বর নেই!", parse_mode="Markdown")
+            await update.message.reply_text("❌ কোনো ভ্যালিড নম্বর নেই!", reply_markup=get_main_keyboard())
+            context.user_data.clear()
             return
-        max_bulk = int(get_setting('max_bulk_numbers', '50'))
+        max_bulk = int(get_setting('max_bulk_numbers', '100'))
         if len(valid) > max_bulk:
-            await update.message.reply_text(f"❌ সর্বোচ্চ {max_bulk}টি!", parse_mode="Markdown")
+            await update.message.reply_text(f"❌ সর্বোচ্চ {max_bulk}টি!", reply_markup=get_main_keyboard())
+            context.user_data.clear()
             return
         context.user_data['bulk_numbers'] = valid
         context.user_data['state'] = 'bulk_message'
@@ -1843,17 +1596,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         numbers = context.user_data.get('bulk_numbers', [])
         msg = message.strip()
         if not numbers:
-            await update.message.reply_text("❌ ত্রুটি!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await update.message.reply_text("❌ ত্রুটি!", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
+        
+        cost_per = int(get_setting('bulk_sms_cost', '1'))
         total = len(numbers)
+        total_cost = total * cost_per
+        
         conn = await get_db()
         cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
-        if not row or row[0] < total:
-            await update.message.reply_text(f"❌ প্রয়োজন: {total} ক্রেডিট", parse_mode="Markdown", reply_markup=get_main_keyboard())
+        if not row or row[0] < total_cost:
+            await update.message.reply_text(f"❌ প্রয়োজন: {total_cost} ক্রেডিট", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
+        
         status_msg = await update.message.reply_text(f"⏳ {total} টি নম্বরে পাঠানো হচ্ছে...", parse_mode="Markdown")
         success_list = []
         failed_list = []
@@ -1862,22 +1620,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         batch_size = 5
         for i in range(0, total, batch_size):
             batch = numbers[i:i+batch_size]
-            tasks = []
-            for num in batch:
-                tasks.append(send_sms_api(num, msg))
+            tasks = [send_sms_api(num, msg) for num in batch]
             results = await asyncio.gather(*tasks)
             
-            for idx, (success, response) in enumerate(results):
+            for idx, (success, response, raw) in enumerate(results):
                 num = batch[idx]
                 if success:
                     success_list.append(num)
+                    await save_sms_history(user_id, num, msg, "success", raw)
                 else:
                     failed_list.append(num)
+                    await save_sms_history(user_id, num, msg, "failed", raw)
                 
-                conn = await get_db()
-                await conn.execute("UPDATE users SET balance = balance - 1, total_sms = total_sms + 1 WHERE user_id = ?", (user_id,))
-                await conn.commit()
+                await conn.execute(
+                    "UPDATE users SET balance = balance - ?, total_sms = total_sms + 1 WHERE user_id = ?",
+                    (cost_per, user_id)
+                )
             
+            await conn.commit()
             processed = min(i + batch_size, total)
             try:
                 bar = progress_bar(processed, total)
@@ -1886,14 +1646,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await asyncio.sleep(interval)
         
-        await track_transaction(user_id, "spend", -total, f"Bulk SMS to {len(success_list)} numbers")
+        await conn.execute("UPDATE users SET total_bulk = total_bulk + 1 WHERE user_id = ?", (user_id,))
+        await conn.commit()
+        await track_transaction(user_id, "spend", -total_cost, f"Bulk SMS ({len(success_list)} success)")
+        
         result = f"✅ **Bulk সম্পূর্ণ!**\n━━━━━━━━━━━━━━━━━━━\n\n"
         result += f"📤 মোট: {total}\n"
         result += f"✅ সফল: {len(success_list)}\n"
         result += f"❌ ব্যর্থ: {len(failed_list)}\n"
-        result += f"💰 খরচ: {total}"
+        result += f"💰 খরচ: {len(success_list) * cost_per}"
         if failed_list:
             result += f"\n\n❌ ব্যর্থ: {', '.join(failed_list[:5])}"
+            if len(failed_list) > 5:
+                result += f" এবং আরও {len(failed_list) - 5}টি"
         await status_msg.edit_text(result, parse_mode="Markdown", reply_markup=get_main_keyboard())
         context.user_data.clear()
         return
@@ -1903,13 +1668,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = await get_db()
         cursor = await conn.execute("SELECT 1 FROM redeem_history WHERE user_id = ? AND code = ?", (user_id, code))
         if await cursor.fetchone():
-            await update.message.reply_text("❌ আপনি ইতিমধ্যে এই কোড ব্যবহার করেছেন!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await update.message.reply_text("❌ আপনি ইতিমধ্যে ব্যবহার করেছেন!", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
         cursor = await conn.execute("SELECT amount, usages FROM redeem_codes WHERE code = ?", (code,))
         row = await cursor.fetchone()
         if not row or row[1] <= 0:
-            await update.message.reply_text("❌ ভুল বা মেয়াদোত্তীর্ণ কোড!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            await update.message.reply_text("❌ ভুল বা মেয়াদোত্তীর্ণ কোড!", reply_markup=get_main_keyboard())
             context.user_data.clear()
             return
         amount = row[0]
@@ -1938,9 +1703,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('state', None)
         return
     
-    # ============================================================
     # ডিফল্ট
-    # ============================================================
     await update.message.reply_text("❌ **বাটন ব্যবহার করুন!**", parse_mode="Markdown")
 
 # ============================================================
@@ -1963,10 +1726,10 @@ async def main():
         await app.updater.start_polling()
         
         print("✅ Bot is RUNNING!")
-        print(f"📡 APIs: {len(BOMBER_APIS)}")
-        print(f"🔑 SMS API: {'✅' if SMS_API_URL and SMS_API_KEY else '❌'}")
-        print(f"💣 Bombing: {'🟢' if BOMBING_ACTIVE else '🔴'}")
-        print(f"⚡ Optimized: ✅ (Cache, Parallel, Batch)")
+        print(f"📡 SMS API URL: {SMS_API_URL}")
+        print(f"🔑 SMS API Key: {'✅' if SMS_API_KEY else '❌'}")
+        print(f"📛 Sender ID: {SMS_SENDER_ID or '(none)'}")
+        print(f"⚡ Custom SMS Bot Ready!")
         print("=" * 60)
         
         while True:
