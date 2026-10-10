@@ -500,7 +500,7 @@ app.run_polling()
         ("Normal Telegram Bot", """
 import telebot
 
-bot = telebot.TeleBot("YOUR_TOKEN_HERE")
+bot = telebot.TeleBot("8969205912:AAHj-bmFK22gWGJXCcBTC5DLRJBljbk9sT4")
 
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -518,7 +518,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 async def start(update, context):
     await update.message.reply_text("Hello!")
 
-app = ApplicationBuilder().token("YOUR_TOKEN").build()
+app = ApplicationBuilder().token("8969205912:AAHj-bmFK22gWGJXCcBTC5DLRJBljbk9sT4").build()
 app.add_handler(CommandHandler("start", start))
 app.run_polling()
 """),
