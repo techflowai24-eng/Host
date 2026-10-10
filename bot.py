@@ -18,7 +18,7 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKe
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 # ===================== কনফিগারেশন =====================
-BOT_TOKEN = "8805697661:AAG8conahimCMdVX9Ek9v0mhB7lfFzHHYnw"
+BOT_TOKEN = "7930474954:AAGlxVtZMuh04xYs7kU_dDIj0MJmZ8Q0eCI"
 ADMIN_ID = 1967494059
 ADMIN_USERNAME = "RobiEntertainment"
 
