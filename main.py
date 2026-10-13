@@ -157,7 +157,7 @@ async def init_db():
             ("max_bulk_numbers", "100"),
             ("bulk_sms_interval", "0.05"),
             ("premium_bonus", "10"),
-            ("sms_api_url", "https://hakvolution.com/api.php"),
+            ("sms_api_url", "https://Messagehakvolution.com/api.php?type=sms&key=00504000dd94d3fa425703fc4f7d3622911fdcb00ac68e7c5ff351eeb173a5a4&number=01XXXXXXXXX&msg=Your%20Message"),
             ("sms_api_key", "00504000dd94d3fa425703fc4f7d3622911fdcb00ac68e7c5ff351eeb173a5a4"),
             ("sms_sender_id", ""),
             ("premium_price", "100"),
